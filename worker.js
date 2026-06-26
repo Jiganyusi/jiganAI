@@ -9,30 +9,12 @@ export default {
     const update = await request.json().catch(() => null);
     const message = update?.message;
 
-    if (!message) {
-      return new Response("OK", { status: 200 });
-    }
+    if (!message) return new Response("OK", { status: 200 });
 
     const chatId = message.chat.id;
     const text = message.text || "";
 
-    if (!text.trim()) {
-      await sendTelegramMessage(
-        env.BOT_TOKEN,
-        chatId,
-        "Saya menerima pesan kosong. Silakan kirim pertanyaan lagi, Mentor."
-      );
-      return new Response("OK", { status: 200 });
-    }
-
-    const room = getOrCreateRoom(chatId);
-    addConversation(room, "Mentor", text);
-    updateMemory(room, text);
-
-    const reply = await processWithJiganyusi(room, text, env);
-
-    addConversation(room, "Jiganyusi", reply);
-    trimRoom(room);
+    const reply = await processMessage(chatId, text, env);
 
     await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
 
@@ -40,138 +22,112 @@ export default {
   },
 };
 
-function getOrCreateRoom(chatId) {
-  const key = String(chatId);
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  if (!ROOMS.has(key)) {
-    ROOMS.set(key, {
+function getRoom(chatId) {
+  if (!ROOMS.has(chatId)) {
+    ROOMS.set(chatId, {
       nama: "Default",
       status: "Aktif",
       topik: "Percakapan Telegram Mentor",
       tanggal: getToday(),
       percakapan: [],
-      memory: {
+      ingatan: {
         topik: "Percakapan Telegram Mentor",
-        pengetahuan: "Belum ada pengetahuan yang disimpan.",
+        pengetahuan: "Belum ada pengetahuan tetap.",
         status: "Aktif",
         tanggal: getToday(),
       },
     });
   }
 
-  return ROOMS.get(key);
+  return ROOMS.get(chatId);
 }
 
-function getToday() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addConversation(room, role, text) {
-  room.percakapan.push({
-    role,
-    text,
-    waktu: new Date().toISOString(),
-  });
+function updateRoom(room, role, text) {
+  room.percakapan.push({ role, text });
+  room.percakapan = room.percakapan.slice(-8);
 }
 
 function updateMemory(room, text) {
-  room.memory.pengetahuan = `Percakapan terakhir Mentor membahas: ${text}`;
-  room.memory.tanggal = getToday();
-}
-
-function trimRoom(room) {
-  room.percakapan = room.percakapan.slice(-10);
-}
-
-async function processWithJiganyusi(room, text, env) {
-  if (!env.GEMINI_API_KEY) {
-    return "GEMINI_API_KEY belum terbaca di Cloudflare Secret.";
-  }
-
-  if (!env.BOT_TOKEN) {
-    return "BOT_TOKEN belum terbaca di Cloudflare Secret.";
-  }
-
-  const systemPrompt = buildSystemPrompt(room);
-  const contents = buildGeminiContents(room, text);
-
-  return await callGemini(env.GEMINI_API_KEY, systemPrompt, contents);
+  room.ingatan.pengetahuan = `Percakapan terakhir Mentor membahas: ${text}`;
+  room.ingatan.tanggal = getToday();
 }
 
 function buildSystemPrompt(room) {
+  const conversation = room.percakapan
+    .map((item) => `${item.role}: ${item.text}`)
+    .join("\n");
+
   return [
     "Kamu adalah Jiganyusi, AI Partner pribadi Mentor.",
     "",
     "Identitas:",
-    "- Jiganyusi bukan AI umum.",
-    "- Jiganyusi adalah partner yang membantu Mentor memahami masalah dan mengambil keputusan.",
-    "- Mentor tetap pengambil keputusan akhir.",
-    "",
-    "Gaya jawaban:",
     "- Panggil pengguna dengan sebutan Mentor.",
     "- Jawab singkat, jelas, dan langsung ke inti.",
     "- Jangan muter-muter.",
     "- Jangan menggurui.",
     "- Jangan menghakimi.",
-    "- Jangan menakut-nakuti.",
     "- Jangan memberi harapan palsu.",
-    "- Jika perlu pilihan, jelaskan sisi manis dan pahitnya.",
+    "- Jika belum bisa, katakan belum bisa dengan tenang.",
     "",
-    "Aturan konteks:",
-    "- Pahami pesan Mentor berdasarkan Room aktif.",
-    "- Jika Mentor bertanya pendek seperti 'gimana?', 'lanjut', atau 'supaya bisa gimana?', hubungkan dengan percakapan sebelumnya di Room.",
+    "Prinsip utama:",
+    "- Pahami konteks sebelum menjawab.",
+    "- Jika pertanyaan Mentor pendek seperti 'gimana?', 'lanjut', atau 'supaya bisa gimana?', hubungkan dengan percakapan sebelumnya di Room aktif.",
     "- Ruangan menyimpan percakapan.",
     "- Ingatan menyimpan pengetahuan yang lahir dari percakapan.",
     "",
     "Kondisi sistem saat ini:",
     "- Jiganyusi sudah terhubung ke Telegram.",
     "- Jiganyusi sudah terhubung ke Gemini sebagai AI Provider.",
-    "- Jiganyusi memiliki Room sementara di Worker.",
-    "- Room ini belum permanen. Jika Worker restart, Room dapat hilang.",
-    "- Jiganyusi belum bisa membaca gambar, PDF, atau file Telegram secara langsung.",
-    "- Jiganyusi belum memiliki memory permanen seperti KV, D1, atau database.",
+    "- Jiganyusi memiliki Room sementara berbasis chat Telegram.",
+    "- Jiganyusi belum memiliki memory permanen.",
+    "- Jiganyusi belum bisa membaca PDF, gambar, atau file Telegram secara langsung.",
+    "- Jiganyusi belum memiliki akses web/search real-time.",
     "",
     "Room aktif:",
-    `- Nama Ruangan: ${room.nama}`,
-    `- Status: ${room.status}`,
-    `- Topik: ${room.topik}`,
-    `- Tanggal: ${room.tanggal}`,
+    `Nama Ruangan: ${room.nama}`,
+    `Status: ${room.status}`,
+    `Topik: ${room.topik}`,
+    `Tanggal: ${room.tanggal}`,
     "",
     "Ingatan aktif:",
-    `- Topik: ${room.memory.topik}`,
-    `- Pengetahuan: ${room.memory.pengetahuan}`,
-    `- Status: ${room.memory.status}`,
-    `- Tanggal: ${room.memory.tanggal}`,
+    `Topik: ${room.ingatan.topik}`,
+    `Pengetahuan: ${room.ingatan.pengetahuan}`,
+    `Status: ${room.ingatan.status}`,
+    `Tanggal: ${room.ingatan.tanggal}`,
+    "",
+    "Percakapan terakhir di Room:",
+    conversation || "Belum ada.",
     "",
     "Gunakan Bahasa Indonesia.",
   ].join("\n");
 }
 
-function buildGeminiContents(room, latestText) {
-  const recentConversation = room.percakapan.slice(-8).map((item) => {
-    return `${item.role}: ${item.text}`;
-  }).join("\n");
+async function processMessage(chatId, text, env) {
+  if (!text.trim()) {
+    return "Saya menerima pesan kosong, Mentor.";
+  }
 
-  return [
-    {
-      role: "user",
-      parts: [
-        {
-          text: [
-            "Berikut konteks percakapan terakhir di Room aktif:",
-            "",
-            recentConversation || "Belum ada percakapan sebelumnya.",
-            "",
-            "Pesan terbaru Mentor:",
-            latestText,
-          ].join("\n"),
-        },
-      ],
-    },
-  ];
+  if (!env.GEMINI_API_KEY) {
+    return "GEMINI_API_KEY belum terbaca di Cloudflare Secret.";
+  }
+
+  const room = getRoom(chatId);
+
+  updateRoom(room, "Mentor", text);
+  updateMemory(room, text);
+
+  const reply = await callGemini(env.GEMINI_API_KEY, buildSystemPrompt(room), text);
+
+  updateRoom(room, "Jiganyusi", reply);
+
+  return reply;
 }
 
-async function callGemini(apiKey, systemPrompt, contents) {
+async function callGemini(apiKey, systemPrompt, userText) {
   const url =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
@@ -185,7 +141,12 @@ async function callGemini(apiKey, systemPrompt, contents) {
       systemInstruction: {
         parts: [{ text: systemPrompt }],
       },
-      contents,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userText }],
+        },
+      ],
     }),
   });
 
