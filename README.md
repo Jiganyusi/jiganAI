@@ -1,0 +1,2 @@
+# jiganAI
+partner AI
