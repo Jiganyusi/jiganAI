@@ -2,15 +2,20 @@ function getToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function updateMemoryFromConversation(room, mentorText) {
-  room.ingatan.pengetahuan = buildSimpleKnowledge(room, mentorText);
-  room.ingatan.status = "Aktif";
-  room.ingatan.tanggal = getToday();
-}
+export function updateMemoryFromConversation(room, text) {
+  if (!room.ingatan) {
+    room.ingatan = {
+      topik: room.topik || "Topik belum ditentukan",
+      pengetahuan: "Belum ada pengetahuan tetap.",
+      status: room.status || "Aktif",
+      tanggal: getToday(),
+    };
+  }
 
-function buildSimpleKnowledge(room, mentorText) {
-  return [
-    `Topik aktif: ${room.topik}.`,
-    `Pesan terbaru Mentor: ${mentorText}`,
-  ].join(" ");
+  room.ingatan.topik = room.topik;
+  room.ingatan.pengetahuan = `Percakapan terakhir Mentor membahas: ${text}`;
+  room.ingatan.status = room.status;
+  room.ingatan.tanggal = getToday();
+
+  return room.ingatan;
 }
