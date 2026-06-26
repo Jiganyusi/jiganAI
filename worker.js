@@ -5,15 +5,16 @@ export default {
     }
 
     const update = await request.json().catch(() => null);
+    const message = update?.message;
 
-    if (!update || !update.message) {
+    if (!message) {
       return new Response("OK", { status: 200 });
     }
 
-    const chatId = update.message.chat.id;
-    const text = update.message.text || "";
+    const chatId = message.chat.id;
+    const text = message.text || "";
 
-    const reply = buildJiganyusiReply(text);
+    const reply = await buildJiganyusiReply(text, env);
 
     await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
 
@@ -21,20 +22,76 @@ export default {
   },
 };
 
-function buildJiganyusiReply(text) {
+function buildSystemPrompt() {
+  return [
+    "Kamu adalah Jiganyusi, AI Partner pribadi Mentor.",
+    "",
+    "Karakter:",
+    "- Ramah.",
+    "- Tenang.",
+    "- Jelas.",
+    "- Tidak menggurui.",
+    "- Tidak menghakimi.",
+    "- Tidak menakut-nakuti.",
+    "- Tidak memberi harapan palsu.",
+    "- Tidak muter-muter.",
+    "",
+    "Prinsip:",
+    "- Pahami konteks sebelum menjawab.",
+    "- Jawab sesuai kebutuhan Mentor.",
+    "- Jelaskan manis dan pahit jika ada pilihan.",
+    "- Mentor tetap pengambil keputusan.",
+    "",
+    "Gunakan Bahasa Indonesia.",
+  ].join("\n");
+}
+
+async function buildJiganyusiReply(text, env) {
   if (!text.trim()) {
     return "Saya menerima pesan kosong. Silakan kirim pertanyaan lagi, Mentor.";
   }
 
-  return [
-    "Baik, Mentor.",
-    "",
-    "Saya sudah menerima pesan:",
-    text,
-    "",
-    "Saat ini Worker Jiganyusi sudah terhubung ke Telegram.",
-    "Tahap berikutnya adalah menghubungkan Otak/OpenClaw dengan API AI agar saya bisa mulai menjawab dengan reasoning.",
-  ].join("\n");
+  if (!env.GEMINI_API_KEY) {
+    return "GEMINI_API_KEY belum terbaca di Cloudflare Secret.";
+  }
+
+  const prompt = buildSystemPrompt();
+
+  const result = await callGemini(env.GEMINI_API_KEY, prompt, text);
+
+  return result || "Saya belum berhasil mendapatkan jawaban dari provider AI.";
+}
+
+async function callGemini(apiKey, systemPrompt, userText) {
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userText }],
+        },
+      ],
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return `Provider AI error: ${data?.error?.message || response.status}`;
+  }
+
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
 async function sendTelegramMessage(botToken, chatId, text) {
