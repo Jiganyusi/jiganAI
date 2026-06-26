@@ -5,7 +5,9 @@ import {
   listActiveRooms,
   setActiveRoom,
   updateRoomConversation,
+  archiveRoom,
 } from "./room.js";
+
 import { updateMemoryFromConversation } from "./memory.js";
 import { callProvider } from "./provider.js";
 import { buildBrainPrompt, buildBrainResponse } from "./brain.js";
@@ -30,7 +32,7 @@ export async function handleTelegramUpdate(update, env) {
   const text = (message.text || "").trim();
 
   if (!text) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, "Saya menerima pesan kosong, Mentor.", MAIN_MENU);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, "Saya menerima pesan kosong, Mentor.");
     return;
   }
 
@@ -53,9 +55,7 @@ export async function handleTelegramUpdate(update, env) {
       [
         "Mentor belum memilih Ruangan aktif.",
         "",
-        "Silakan pilih:",
-        "- Start untuk memulai topik baru.",
-        "- /topik untuk memilih topik aktif yang sudah ada.",
+        "Silakan pilih salah satu tombol di bawah.",
       ].join("\n"),
       MAIN_MENU
     );
@@ -63,7 +63,9 @@ export async function handleTelegramUpdate(update, env) {
   }
 
   const reply = await processMentorMessage(chatId, room, text, env);
-  await sendTelegramMessage(env.BOT_TOKEN, chatId, reply, MAIN_MENU);
+
+  // Balasan biasa tidak membawa tombol.
+  await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
 }
 
 async function handleCallback(callbackQuery, env) {
@@ -87,7 +89,7 @@ async function handleCallback(callbackQuery, env) {
     const room = getRoomById(chatId, roomId);
 
     if (!room) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, "Topik tidak ditemukan, Mentor.", MAIN_MENU);
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, "Topik tidak ditemukan, Mentor.");
       return;
     }
 
@@ -105,9 +107,38 @@ async function handleCallback(callbackQuery, env) {
         `Tanggal      : ${room.tanggal}`,
         "",
         "Silakan lanjutkan pembahasan di topik ini, Mentor.",
-      ].join("\n"),
-      MAIN_MENU
+      ].join("\n")
     );
+
+    return;
+  }
+
+  if (data.startsWith("ARCHIVE:")) {
+    const roomId = data.slice("ARCHIVE:".length);
+    const room = getRoomById(chatId, roomId);
+
+    if (!room) {
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, "Topik tidak ditemukan, Mentor.");
+      return;
+    }
+
+    archiveRoom(chatId, roomId);
+
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      [
+        "Topik sudah diarsipkan, Mentor.",
+        "",
+        `Nama Ruangan : ${room.nama}`,
+        `Topik        : ${room.topik}`,
+        "",
+        "Topik ini tidak akan muncul lagi di daftar topik aktif.",
+        "Pengetahuannya tetap disimpan sebagai arsip untuk kebutuhan solusi di masa mendatang.",
+      ].join("\n")
+    );
+
+    return;
   }
 }
 
@@ -126,9 +157,9 @@ async function startNewRoom(chatId, env) {
       `Topik        : ${room.topik}`,
       `Tanggal      : ${room.tanggal}`,
       "",
-      "Kirim pesan pertama. Saya akan memakai pesan awal itu untuk memahami arah topik.",
-    ].join("\n"),
-    MAIN_MENU
+      "Kirim pesan pertama.",
+      "Saya akan memakai pesan awal itu untuk memahami arah topik.",
+    ].join("\n")
   );
 }
 
@@ -139,18 +170,26 @@ async function showTopics(chatId, env) {
     await sendTelegramMessage(
       env.BOT_TOKEN,
       chatId,
-      "Belum ada topik aktif, Mentor. Gunakan Start untuk membuat ruangan baru.",
+      "Belum ada topik aktif, Mentor.\nGunakan Start untuk membuat ruangan baru.",
       MAIN_MENU
     );
     return;
   }
 
   const keyboard = {
-    inline_keyboard: rooms.map((room) => [
-      {
-        text: `${room.nama} — ${room.topik}`,
-        callback_data: `ROOM:${room.id}`,
-      },
+    inline_keyboard: rooms.flatMap((room) => [
+      [
+        {
+          text: `Buka: ${room.nama} — ${room.topik}`,
+          callback_data: `ROOM:${room.id}`,
+        },
+      ],
+      [
+        {
+          text: `Arsipkan: ${room.nama}`,
+          callback_data: `ARCHIVE:${room.id}`,
+        },
+      ],
     ]),
   };
 
@@ -184,7 +223,9 @@ async function sendTelegramMessage(botToken, chatId, text, replyMarkup = null) {
 
   await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   });
 }
@@ -194,7 +235,11 @@ async function answerCallbackQuery(botToken, callbackQueryId) {
 
   await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: callbackQueryId }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      callback_query_id: callbackQueryId,
+    }),
   });
 }
