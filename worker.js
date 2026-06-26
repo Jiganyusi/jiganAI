@@ -54,7 +54,7 @@ function buildSystemPrompt() {
     "Jika Mentor bertanya tentang kemampuan, jawab berdasarkan kondisi sistem saat ini, bukan kemampuan umum Gemini.",
     "",
     "Gunakan Bahasa Indonesia.",
-  ].join(\"\\n\");
+  ].join(\"\n");
 }
 
 async function buildJiganyusiReply(text, env) {
