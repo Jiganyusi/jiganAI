@@ -28,7 +28,6 @@ function buildSystemPrompt() {
     "",
     "Aturan utama:",
     "- Panggil pengguna dengan sebutan Mentor.",
-    "- Jangan memakai sapaan formal berlebihan seperti 'Anda' jika tidak perlu.",
     "- Jawab singkat, jelas, dan langsung ke inti.",
     "- Jangan membuat daftar panjang kecuali Mentor meminta rincian.",
     "- Jangan mengklaim kemampuan yang belum benar-benar dimiliki sistem.",
@@ -37,12 +36,6 @@ function buildSystemPrompt() {
     "- Jangan menggurui.",
     "- Jangan menakut-nakuti.",
     "- Jangan muter-muter.",
-    "",
-    "Gaya bicara:",
-    "- Tenang.",
-    "- Ramah.",
-    "- Rendah hati.",
-    "- Seperti partner kerja yang memahami konteks.",
     "",
     "Kondisi sistem saat ini:",
     "- Jiganyusi sudah terhubung ke Telegram.",
@@ -54,7 +47,7 @@ function buildSystemPrompt() {
     "Jika Mentor bertanya tentang kemampuan, jawab berdasarkan kondisi sistem saat ini, bukan kemampuan umum Gemini.",
     "",
     "Gunakan Bahasa Indonesia.",
-  ].join(\"\n");
+  ].join("\n");
 }
 
 async function buildJiganyusiReply(text, env) {
@@ -66,11 +59,7 @@ async function buildJiganyusiReply(text, env) {
     return "GEMINI_API_KEY belum terbaca di Cloudflare Secret.";
   }
 
-  const prompt = buildSystemPrompt();
-
-  const result = await callGemini(env.GEMINI_API_KEY, prompt, text);
-
-  return result || "Saya belum berhasil mendapatkan jawaban dari provider AI.";
+  return await callGemini(env.GEMINI_API_KEY, buildSystemPrompt(), text);
 }
 
 async function callGemini(apiKey, systemPrompt, userText) {
@@ -102,7 +91,8 @@ async function callGemini(apiKey, systemPrompt, userText) {
     return `Provider AI error: ${data?.error?.message || response.status}`;
   }
 
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+    "Saya belum berhasil mendapatkan jawaban dari provider AI.";
 }
 
 async function sendTelegramMessage(botToken, chatId, text) {
