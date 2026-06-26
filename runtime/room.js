@@ -1,81 +1,99 @@
-const CHAT_STATE = new Map();
+const ROOM_STORE = new Map();
+const ACTIVE_ROOM = new Map();
 
 function getToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function getChatState(chatId) {
-  if (!CHAT_STATE.has(chatId)) {
-    CHAT_STATE.set(chatId, {
-      rooms: [],
-      activeRoomId: null,
-      counter: 0,
-    });
+function getRooms(chatId) {
+  if (!ROOM_STORE.has(chatId)) {
+    ROOM_STORE.set(chatId, []);
   }
 
-  return CHAT_STATE.get(chatId);
+  return ROOM_STORE.get(chatId);
+}
+
+function createRoomId() {
+  return `room-${Date.now()}`;
 }
 
 export function createRoom(chatId) {
-  const state = getChatState(chatId);
-  state.counter += 1;
+  const rooms = getRooms(chatId);
+  const roomNumber = rooms.length + 1;
 
   const room = {
-    id: `room-${state.counter}`,
-    nama: `Room-${String(state.counter).padStart(3, "0")}`,
+    id: createRoomId(),
+    nama: `Topik ${roomNumber}`,
     status: "Aktif",
-    topik: "Topik baru",
+    topik: "Topik belum ditentukan",
     tanggal: getToday(),
     percakapan: [],
     ingatan: {
-      topik: "Topik baru",
+      topik: "Topik belum ditentukan",
       pengetahuan: "Belum ada pengetahuan tetap.",
       status: "Aktif",
       tanggal: getToday(),
     },
   };
 
-  state.rooms.push(room);
+  rooms.push(room);
   return room;
 }
 
-export function listActiveRooms(chatId) {
-  const state = getChatState(chatId);
-  return state.rooms.filter((room) => room.status === "Aktif");
-}
+export function getActiveRoom(chatId) {
+  const roomId = ACTIVE_ROOM.get(chatId);
 
-export function getRoomById(chatId, roomId) {
-  const state = getChatState(chatId);
-  return state.rooms.find((room) => room.id === roomId) || null;
+  if (!roomId) {
+    return null;
+  }
+
+  return getRoomById(chatId, roomId);
 }
 
 export function setActiveRoom(chatId, roomId) {
-  const state = getChatState(chatId);
-  state.activeRoomId = roomId;
+  ACTIVE_ROOM.set(chatId, roomId);
 }
 
-export function getActiveRoom(chatId) {
-  const state = getChatState(chatId);
+export function getRoomById(chatId, roomId) {
+  const rooms = getRooms(chatId);
+  return rooms.find((room) => room.id === roomId) || null;
+}
 
-  if (!state.activeRoomId) return null;
-
-  return getRoomById(chatId, state.activeRoomId);
+export function listActiveRooms(chatId) {
+  const rooms = getRooms(chatId);
+  return rooms.filter((room) => room.status === "Aktif");
 }
 
 export function updateRoomConversation(room, role, text) {
-  if (room.topik === "Topik baru" && role === "Mentor") {
-    room.topik = inferTopic(text);
+  room.percakapan.push({
+    role,
+    text,
+    tanggal: getToday(),
+  });
+
+  room.percakapan = room.percakapan.slice(-10);
+
+  if (room.topik === "Topik belum ditentukan" && role === "Mentor") {
+    room.topik = text.slice(0, 60);
     room.ingatan.topik = room.topik;
   }
 
-  room.percakapan.push({ role, text });
-  room.percakapan = room.percakapan.slice(-10);
+  return room;
 }
 
-function inferTopic(text) {
-  const clean = text.replace(/\s+/g, " ").trim();
+export function archiveRoom(chatId, roomId) {
+  const room = getRoomById(chatId, roomId);
 
-  if (!clean) return "Topik baru";
+  if (!room) {
+    return null;
+  }
 
-  return clean.length > 60 ? `${clean.slice(0, 57)}...` : clean;
+  room.status = "Arsip";
+  room.ingatan.status = "Arsip";
+
+  if (ACTIVE_ROOM.get(chatId) === roomId) {
+    ACTIVE_ROOM.delete(chatId);
+  }
+
+  return room;
 }
