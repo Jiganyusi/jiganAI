@@ -200,7 +200,7 @@ async function processMentorMessage(chatId, room, text, env) {
   updateRoomConversation(room, "Mentor", text);
   updateMemoryFromConversation(room, text);
 
-  const systemPrompt = buildBrainPrompt(room);
+  const systemPrompt = await buildBrainPrompt(room, text);
   const providerResult = await callProvider(env, systemPrompt, text);
   const reply = buildBrainResponse(providerResult);
 
