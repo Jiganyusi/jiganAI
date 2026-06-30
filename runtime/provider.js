@@ -1,38 +1,80 @@
 export async function callProvider(env, systemPrompt, userText) {
-  if (!env.GEMINI_API_KEY) {
-    return {
-      ok: false,
-      text: "GEMINI_API_KEY belum terbaca di Cloudflare Secret.",
-    };
-  }
-
-  const needsSearch = shouldUseSearch(userText);
-
-  let searchContext = "";
-
-  if (needsSearch) {
-    searchContext = await callTavily(env, userText);
-  }
+  const searchContext = shouldUseSearch(userText)
+    ? await callTavily(env, userText)
+    : "";
 
   const finalPrompt = [
     systemPrompt,
     "",
     searchContext
-      ? `Informasi real-time dari Search Provider:\n${searchContext}`
+      ? `# INFORMASI DARI SEARCH PROVIDER\n${searchContext}`
       : "",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  const geminiText = await callGemini(env.GEMINI_API_KEY, finalPrompt, userText);
+  const providerOrder = getProviderOrder(env);
+  const errors = [];
+
+  for (const provider of providerOrder) {
+    const result = await callAiProvider(provider, env, finalPrompt, userText);
+    if (result.ok) {
+      return {
+        ok: true,
+        text: result.text,
+        provider,
+        usedSearch: Boolean(searchContext),
+      };
+    }
+    errors.push(`${provider}: ${result.text}`);
+  }
+
+  if (searchContext) {
+    return {
+      ok: true,
+      text: [
+        "Mentor, AI Provider sedang belum berhasil merangkai jawaban.",
+        "Namun Search Provider berhasil mengambil informasi berikut:",
+        "",
+        searchContext,
+      ].join("\n"),
+      provider: "search-fallback",
+      usedSearch: true,
+    };
+  }
 
   return {
-    ok: true,
-    text: geminiText,
-    usedSearch: Boolean(searchContext),
+    ok: false,
+    text: [
+      "Semua AI Provider gagal dipanggil.",
+      "",
+      "Ringkasan error:",
+      errors.join("\n"),
+    ].join("\n"),
   };
 }
 
+function getProviderOrder(env) {
+  const configured = String(env.AI_PROVIDER || "").trim().toLowerCase();
+
+  if (configured) {
+    return unique([
+      configured,
+      "conduit",
+      "gemini",
+    ]);
+  }
+
+  if (env.CONDUIT_API_KEY) return ["conduit", "gemini"];
+  return ["gemini", "conduit"];
+}
+
+function unique(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
 function shouldUseSearch(text) {
-  const query = text.toLowerCase();
+  const query = String(text || "").toLowerCase();
 
   const keywords = [
     "terbaru",
@@ -47,9 +89,112 @@ function shouldUseSearch(text) {
     "piala dunia",
     "crypto",
     "saham",
+    "dokumen",
+    "dokumentasi",
+    "api baru",
+    "conduit",
+    "ozdoev",
+    "search",
+    "cari",
+    "cek",
   ];
 
   return keywords.some((keyword) => query.includes(keyword));
+}
+
+async function callAiProvider(provider, env, systemPrompt, userText) {
+  if (provider === "conduit") return callConduit(env, systemPrompt, userText);
+  if (provider === "gemini") return callGemini(env, systemPrompt, userText);
+
+  return {
+    ok: false,
+    text: `AI_PROVIDER '${provider}' belum didukung.`,
+  };
+}
+
+async function callConduit(env, systemPrompt, userText) {
+  if (!env.CONDUIT_API_KEY) {
+    return { ok: false, text: "CONDUIT_API_KEY belum terbaca." };
+  }
+
+  const baseUrl = String(env.CONDUIT_BASE_URL || "https://conduit.ozdoev.net/api/v1").replace(/\/$/, "");
+  const model = env.CONDUIT_MODEL || env.AI_MODEL || "gpt-4o-mini";
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.CONDUIT_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userText },
+      ],
+      temperature: 0.3,
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      text: data?.error?.message || data?.message || `Conduit error ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    text:
+      data?.choices?.[0]?.message?.content ||
+      "Conduit berhasil dipanggil, tetapi tidak mengembalikan teks.",
+  };
+}
+
+async function callGemini(env, systemPrompt, userText) {
+  if (!env.GEMINI_API_KEY) {
+    return { ok: false, text: "GEMINI_API_KEY belum terbaca." };
+  }
+
+  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": env.GEMINI_API_KEY,
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userText }],
+        },
+      ],
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      text: data?.error?.message || `Gemini error ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    text:
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "Gemini berhasil dipanggil, tetapi tidak mengembalikan teks.",
+  };
 }
 
 async function callTavily(env, query) {
@@ -93,39 +238,4 @@ async function callTavily(env, query) {
         .join("\n");
     })
     .join("\n\n");
-}
-
-async function callGemini(apiKey, systemPrompt, userText) {
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: userText }],
-        },
-      ],
-    }),
-  });
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return `Provider AI error: ${data?.error?.message || response.status}`;
-  }
-
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Saya belum berhasil mendapatkan jawaban dari provider AI."
-  );
 }
