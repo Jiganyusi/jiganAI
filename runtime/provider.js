@@ -5,39 +5,39 @@ export async function callProvider(env, systemPrompt, userText) {
 
   const finalPrompt = [
     systemPrompt,
-    "",
     searchContext ? `# INFORMASI DARI SEARCH PROVIDER\n${searchContext}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean).join("\n\n");
 
-  const providerOrder = getProviderOrder(env);
+  const aiPool = await buildAiPool(env);
   const errors = [];
 
-  for (const provider of providerOrder) {
-    const result = await callAiProvider(provider, env, finalPrompt, userText);
+  for (const item of aiPool) {
+    const result = await callModel(item, env, finalPrompt, userText);
+
     if (result.ok) {
       return {
         ok: true,
         text: result.text,
-        provider,
+        provider: item.provider,
+        model: item.model,
         usedSearch: Boolean(searchContext),
       };
     }
 
-    errors.push(`${provider}: ${result.text}`);
+    errors.push(`${item.provider}/${item.model}: ${result.text}`);
   }
 
   if (searchContext) {
     return {
       ok: true,
       text: [
-        "Mentor, AI Provider sedang belum berhasil merangkai jawaban.",
+        "Mentor, semua AI Provider sedang gagal dipakai.",
         "Namun Search Provider berhasil mengambil informasi berikut:",
         "",
         searchContext,
       ].join("\n"),
-      provider: "search-fallback",
+      provider: "tavily",
+      model: null,
       usedSearch: true,
     };
   }
@@ -45,34 +45,220 @@ export async function callProvider(env, systemPrompt, userText) {
   return {
     ok: false,
     text: [
-      "Semua AI Provider gagal dipanggil.",
+      "Semua AI Provider gagal dipakai.",
       "",
       "Ringkasan error:",
-      errors.join("\n") || "Tidak ada provider yang aktif.",
+      errors.slice(0, 12).join("\n"),
     ].join("\n"),
   };
 }
 
-function getProviderOrder(env) {
-  const configured = String(env.AI_PROVIDER || "").trim().toLowerCase();
+async function buildAiPool(env) {
+  const pool = [];
 
-  if (configured) {
-    return unique([configured, "conduit", "openrouter", "openai", "gemini"]);
+  if (env.CONDUIT_API_KEY) {
+    const conduitModels = await fetchConduitModels(env);
+    for (const model of conduitModels) {
+      pool.push({ provider: "conduit", model });
+    }
   }
 
-  const order = [];
-  if (env.CONDUIT_API_KEY) order.push("conduit");
-  if (env.OPENROUTER_API_KEY) order.push("openrouter");
-  if (env.OPENAI_API_KEY) order.push("openai");
-  if (env.GEMINI_API_KEY) order.push("gemini");
+  if (env.GEMINI_API_KEY) {
+    const geminiModels = await fetchGeminiModels(env);
+    for (const model of geminiModels) {
+      pool.push({ provider: "gemini", model });
+    }
+  }
 
-  return unique(order.length ? order : ["conduit", "gemini"]);
+  return rankModels(uniquePool(pool)).slice(0, 20);
+}
+
+function uniquePool(pool) {
+  const seen = new Set();
+  return pool.filter((item) => {
+    const key = `${item.provider}:${item.model}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function rankModels(pool) {
+  return pool.sort((a, b) => scoreModel(b) - scoreModel(a));
+}
+
+function scoreModel(item) {
+  const name = String(item.model || "").toLowerCase();
+  let score = 0;
+
+  if (item.provider === "conduit") score += 100;
+  if (item.provider === "gemini") score += 80;
+
+  if (name.includes("mini")) score += 30;
+  if (name.includes("flash-lite")) score += 28;
+  if (name.includes("flash")) score += 25;
+  if (name.includes("qwen")) score += 24;
+  if (name.includes("deepseek")) score += 23;
+  if (name.includes("gpt-5")) score += 22;
+  if (name.includes("gpt-4.1")) score += 21;
+  if (name.includes("gpt-4o")) score += 20;
+  if (name.includes("sonnet")) score += 18;
+  if (name.includes("grok")) score += 15;
+  if (name.includes("pro")) score -= 5;
+  if (name.includes("audio")) score -= 30;
+  if (name.includes("image")) score -= 30;
+  if (name.includes("embedding")) score -= 100;
+
+  return score;
+}
+
+async function callModel(item, env, systemPrompt, userText) {
+  if (item.provider === "conduit") {
+    return callConduitModel(env, item.model, systemPrompt, userText);
+  }
+
+  if (item.provider === "gemini") {
+    return callGeminiModel(env, item.model, systemPrompt, userText);
+  }
+
+  return {
+    ok: false,
+    text: `Provider '${item.provider}' belum didukung.`,
+  };
+}
+
+async function fetchConduitModels(env) {
+  const baseUrl = String(
+    env.CONDUIT_BASE_URL || "https://conduit.ozdoev.net/api/v1"
+  ).replace(/\/$/, "");
+
+  const response = await fetch(`${baseUrl}/models`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${env.CONDUIT_API_KEY}`,
+    },
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) return [];
+
+  const rows = Array.isArray(data?.data) ? data.data : [];
+
+  return rows
+    .map((item) => {
+      if (typeof item === "string") return item;
+      return item.id || item.name || item.model || "";
+    })
+    .filter(Boolean);
+}
+
+async function fetchGeminiModels(env) {
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${env.GEMINI_API_KEY}`;
+
+  const response = await fetch(url);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) return [];
+
+  const models = Array.isArray(data?.models) ? data.models : [];
+
+  return models
+    .filter((item) =>
+      Array.isArray(item.supportedGenerationMethods) &&
+      item.supportedGenerationMethods.includes("generateContent")
+    )
+    .map((item) => item.name || "")
+    .filter(Boolean);
+}
+
+async function callConduitModel(env, model, systemPrompt, userText) {
+  const baseUrl = String(
+    env.CONDUIT_BASE_URL || "https://conduit.ozdoev.net/api/v1"
+  ).replace(/\/$/, "");
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.CONDUIT_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userText },
+      ],
+      temperature: 0.3,
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      text:
+        data?.error?.message ||
+        data?.message ||
+        `Conduit error ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    text:
+      data?.choices?.[0]?.message?.content ||
+      "Conduit berhasil dipanggil, tetapi tidak mengembalikan teks.",
+  };
+}
+
+async function callGeminiModel(env, model, systemPrompt, userText) {
+  const cleanModel = String(model).replace(/^models\//, "");
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": env.GEMINI_API_KEY,
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userText }],
+        },
+      ],
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      text: data?.error?.message || `Gemini error ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    text:
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "Gemini berhasil dipanggil, tetapi tidak mengembalikan teks.",
+  };
 }
 
 function shouldUseSearch(text) {
-  const q = String(text || "").toLowerCase();
+  const query = String(text || "").toLowerCase();
 
-  const keywords = [
+  return [
     "terbaru",
     "hari ini",
     "sekarang",
@@ -85,134 +271,21 @@ function shouldUseSearch(text) {
     "piala dunia",
     "crypto",
     "saham",
-    "dokumentasi",
     "dokumen",
+    "dokumentasi",
     "api baru",
-    "endpoint",
     "conduit",
     "ozdoev",
     "search",
     "cari",
     "cek",
-    "lihat repo",
-    "github",
-    "url",
-    "https://",
-  ];
-
-  return keywords.some((keyword) => q.includes(keyword));
-}
-
-async function callAiProvider(provider, env, systemPrompt, userText) {
-  if (provider === "conduit") return callOpenAICompatible({
-    name: "Conduit",
-    apiKey: env.CONDUIT_API_KEY,
-    baseUrl: env.CONDUIT_BASE_URL || "https://conduit.ozdoev.net/api/v1",
-    model: env.CONDUIT_MODEL || env.AI_MODEL || "gpt-4o-mini",
-    systemPrompt,
-    userText,
-  });
-
-  if (provider === "openrouter") return callOpenAICompatible({
-    name: "OpenRouter",
-    apiKey: env.OPENROUTER_API_KEY,
-    baseUrl: env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-    model: env.OPENROUTER_MODEL || env.AI_MODEL || "openai/gpt-4o-mini",
-    systemPrompt,
-    userText,
-    extraHeaders: {
-      "HTTP-Referer": env.APP_URL || "https://github.com/Jiganyusi/jiganAI",
-      "X-Title": "Jiganyusi",
-    },
-  });
-
-  if (provider === "openai") return callOpenAICompatible({
-    name: "OpenAI",
-    apiKey: env.OPENAI_API_KEY,
-    baseUrl: env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    model: env.OPENAI_MODEL || env.AI_MODEL || "gpt-4o-mini",
-    systemPrompt,
-    userText,
-  });
-
-  if (provider === "gemini") return callGemini(env, systemPrompt, userText);
-
-  return { ok: false, text: `AI_PROVIDER '${provider}' belum didukung.` };
-}
-
-async function callOpenAICompatible({ name, apiKey, baseUrl, model, systemPrompt, userText, extraHeaders = {} }) {
-  if (!apiKey) return { ok: false, text: `${name.toUpperCase()}_API_KEY belum terbaca.` };
-
-  const url = `${String(baseUrl).replace(/\/$/, "")}/chat/completions`;
-
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userText },
-      ],
-      temperature: 0.2,
-    }),
-  });
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      text: data?.error?.message || data?.message || `${name} error ${response.status}`,
-    };
-  }
-
-  return {
-    ok: true,
-    text: data?.choices?.[0]?.message?.content || `${name} berhasil dipanggil, tetapi tidak mengembalikan teks.`,
-  };
-}
-
-async function callGemini(env, systemPrompt, userText) {
-  if (!env.GEMINI_API_KEY) return { ok: false, text: "GEMINI_API_KEY belum terbaca." };
-
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash-lite";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": env.GEMINI_API_KEY,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userText }] }],
-    }),
-  });
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return { ok: false, text: data?.error?.message || `Gemini error ${response.status}` };
-  }
-
-  return {
-    ok: true,
-    text: data?.candidates?.[0]?.content?.parts?.[0]?.text || "Gemini berhasil dipanggil, tetapi tidak mengembalikan teks.",
-  };
+  ].some((keyword) => query.includes(keyword));
 }
 
 async function callTavily(env, query) {
-  if (!env.TAVILY_API_KEY) {
-    return "Search Provider belum aktif karena TAVILY_API_KEY belum terbaca.";
-  }
+  if (!env.TAVILY_API_KEY) return "";
 
-  const response = await fetchWithTimeout("https://api.tavily.com/search", {
+  const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -223,7 +296,7 @@ async function callTavily(env, query) {
       search_depth: "basic",
       max_results: 5,
     }),
-  }, 12000);
+  });
 
   const data = await response.json().catch(() => null);
 
@@ -232,26 +305,18 @@ async function callTavily(env, query) {
   }
 
   const results = data?.results || [];
-  if (!results.length) return "Search Provider tidak menemukan hasil yang relevan.";
 
-  return results.map((item, index) => [
-    `${index + 1}. ${item.title || "Tanpa judul"}`,
-    item.url ? `URL: ${item.url}` : "",
-    item.content ? `Ringkasan: ${item.content}` : "",
-  ].filter(Boolean).join("\n")).join("\n\n");
-}
-
-async function fetchWithTimeout(url, options, timeoutMs = 25000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
+  if (!results.length) {
+    return "Search Provider tidak menemukan hasil yang relevan.";
   }
-}
 
-function unique(items) {
-  return [...new Set(items.filter(Boolean))];
+  return results
+    .map((item, index) => {
+      return [
+        `${index + 1}. ${item.title || "Tanpa judul"}`,
+        item.url ? `URL: ${item.url}` : "",
+        item.content ? `Ringkasan: ${item.content}` : "",
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
 }
