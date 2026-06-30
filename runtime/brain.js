@@ -1,23 +1,37 @@
-import { buildOpenClawContext } from "./openclaw.js";
+import { buildOpenClawContext, routeSkills } from "./openclaw.js";
 
-export async function buildBrainPrompt(room, userText) {
+export async function buildBrainPrompt(room, userText, env) {
   const conversation = (room.percakapan || [])
     .map((item) => `${item.role}: ${item.text}`)
     .join("\n");
 
-  const openclawContext = await buildOpenClawContext({ room, userText });
+  const openclawContext = await buildOpenClawContext({ room, userText, env });
+  const routedSkills = routeSkills(userText)
+    .slice(0, 3)
+    .map((skill) => `${skill.id}:${skill.domain}`)
+    .join(", ");
 
   return [
     openclawContext,
     "",
-    "## PERCAKAPAN TERAKHIR DI ROOM",
+    "# JIGANYUSI EXECUTION POLICY",
+    "- Eksekusi dulu, jelaskan setelahnya jika diperlukan.",
+    "- Jangan bertanya jika informasi yang diberikan Mentor sudah cukup untuk langkah pertama.",
+    "- Jika Mentor memberi URL/API/provider baru, gunakan skill integrasi/API/AI untuk menyimpulkan langkah koneksi.",
+    "- Jika perlu informasi terbaru/dokumentasi publik, gunakan hasil Search Provider bila tersedia.",
+    "- Jika tidak punya akses tool tertentu, jelaskan satu kalimat lalu berikan jalur alternatif yang bisa dijalankan.",
+    "- Jangan mengklaim sudah membaca repo/file kecuali konteks file itu memang dimuat dalam prompt.",
+    "- Jika memberi perubahan kode, sebutkan file yang perlu diubah dan alasan singkatnya.",
+    "- Jawab ringkas, tenang, dan langsung ke inti.",
+    "",
+    "# ROUTING SKILL SAAT INI",
+    routedSkills || "Core OpenClaw saja.",
+    "",
+    "# PERCAKAPAN TERAKHIR DI ROOM",
     conversation || "Belum ada.",
     "",
-    "## ATURAN JIGANYUSI",
-    "- Jangan menjawab berdasarkan asumsi jika file/konteks belum dibaca.",
-    "- Jika belum membaca file yang diminta, katakan belum.",
-    "- Sebelum memberi patch kode, pahami struktur repo dan file terkait.",
-    "- Jawab singkat, jelas, dan tidak muter-muter.",
+    "# PERTANYAAN / PERINTAH TERBARU MENTOR",
+    userText,
     "",
     "Gunakan Bahasa Indonesia.",
   ].join("\n");
