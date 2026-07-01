@@ -71,18 +71,7 @@ async function downloadTelegramFile(botToken, fileId) {
   if (!fileRes.ok) throw new Error(`Telegram download gagal ${fileRes.status}`);
   return { buffer: await fileRes.arrayBuffer(), path: filePath };
 }
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
-}
+function arrayBufferToBase64(buffer) { let binary = ""; const bytes = new Uint8Array(buffer); for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]); return btoa(binary); }
 
 async function handleCallback(callbackQuery, env) {
   const chatId = String(callbackQuery.message.chat.id); const data = callbackQuery.data || "";
