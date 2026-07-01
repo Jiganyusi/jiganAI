@@ -39,7 +39,7 @@ async function alertAdmin(env, intruderChatId, update) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const username = update?.message?.from?.username || update?.callback_query?.from?.username || "-";
-  const text = update?.message?.text || update?.callback_query?.data || "-";
+  const text = update?.message?.text || update?.message?.caption || update?.callback_query?.data || "-";
 
   await sendTelegramMessage(
     env.BOT_TOKEN,
@@ -49,7 +49,7 @@ async function alertAdmin(env, intruderChatId, update) {
       "",
       `Chat ID : ${intruderChatId}`,
       `Username: ${username}`,
-      `Input   : ${text}`,
+      `Input   : ${String(text).slice(0, 1000)}`,
       "",
       "Pesan dari user tersebut dibungkam.",
     ].join("\n")
