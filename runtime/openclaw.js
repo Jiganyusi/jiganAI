@@ -17,13 +17,13 @@ const OPTIONAL_FILES = ["INDEX.md", "README.md", "CHANGELOG-v3.md", "memory/2026
 
 const SKILLS = [
   { id: "m1", file: "skills/m1.md", domain: "Value generation & business", high: ["monetize", "pricing", "jualan", "cuan", "funnel"], med: ["business", "income", "sell", "revenue", "produk"], low: ["bayar", "uang"] },
-  { id: "m2", file: "skills/m2.md", domain: "Infrastructure & deployment", high: ["vps", "deploy", "ssh", "nginx", "docker", "systemd"], med: ["server", "linux", "hosting", "cloudflare"], low: ["install", "terminal"] },
+  { id: "m2", file: "skills/m2.md", domain: "Infrastructure & deployment", high: ["vps", "deploy", "ssh", "nginx", "docker", "systemd"], med: ["server", "linux", "hosting", "cloudflare", "worker"], low: ["install", "terminal"] },
   { id: "m3", file: "skills/m3.md", domain: "Content & narrative", high: ["viral", "hook", "caption", "thread", "konten", "naskah"], med: ["copywriting", "post", "draft"], low: ["tulis", "iklan"] },
   { id: "m4", file: "skills/m4.md", domain: "Bots, automation & triggers", high: ["telegram bot", "webhook", "cron", "n8n", "otomatis", "automation"], med: ["bot", "schedule", "jadwal", "worker"], low: ["trigger", "run"] },
-  { id: "m5", file: "skills/m5.md", domain: "Data transformation", high: ["excel", "spreadsheet", "csv", "dataset", "laporan"], med: ["data", "analytics", "report"], low: ["angka", "stats"] },
+  { id: "m5", file: "skills/m5.md", domain: "Data transformation", high: ["excel", "spreadsheet", "csv", "dataset", "laporan"], med: ["data", "analytics", "report", "xlsx"], low: ["angka", "stats"] },
   { id: "m6", file: "skills/m6.md", domain: "API, webhook & integration", high: ["api", "webhook", "endpoint", "integrasi", "rest"], med: ["sdk", "connect", "koneksi", "conduit", "tavily"], low: ["token", "key", "secret"] },
   { id: "m7", file: "skills/m7.md", domain: "LLM, provider & agent architecture", high: ["llm", "openrouter", "claude api", "prompt", "agent"], med: ["ai", "model", "provider", "gemini", "gpt", "claude", "qwen", "deepseek", "grok"], low: ["reasoning", "inference"] },
-  { id: "m8", file: "skills/m8.md", domain: "Files, PDF, DOCX, XLSX, images", high: ["pdf", "docx", "xlsx", "pptx", "dokumen", "gambar"], med: ["file", "image", "export"], low: ["format", "render"] },
+  { id: "m8", file: "skills/m8.md", domain: "Files, PDF, DOCX, XLSX, images", high: ["pdf", "docx", "xlsx", "pptx", "dokumen", "gambar", "image", "file"], med: ["photo", "screenshot", "document", "export", "markdown", "javascript", "python"], low: ["format", "render"] },
   { id: "m9", file: "skills/m9.md", domain: "Frontend & interface", high: ["react", "tailwind", "frontend", "landing page", "ui"], med: ["website", "html", "css"], low: ["design", "web"] },
   { id: "m10", file: "skills/m10.md", domain: "Web3 operations", high: ["wallet", "airdrop", "on-chain", "rpc", "ethers", "viem", "mint"], med: ["crypto", "web3", "token", "blockchain", "swap"], low: ["claim"] },
   { id: "m11", file: "skills/m11.md", domain: "Security audit", high: ["security", "audit", "vulnerability", "exploit", "malicious", "scam"], med: ["aman", "review", "verify"], low: ["cek"] },
@@ -39,11 +39,7 @@ let WORKING_BASE = null;
 
 export function routeSkills(userText) {
   const q = String(userText || "").toLowerCase();
-
-  return SKILLS.map((skill) => ({
-    ...skill,
-    score: score(skill, q),
-  }))
+  return SKILLS.map((skill) => ({ ...skill, score: score(skill, q) }))
     .filter((skill) => skill.score > 0)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }
@@ -52,18 +48,19 @@ export async function buildOpenClawContext({ room, userText, env }) {
   const boot = await loadFiles(BOOT_FILES, env);
   const optional = await loadFiles(OPTIONAL_FILES, env, true);
   const registry = await loadFile("skills/m0.md", env, true);
-
   const selectedSkills = selectSkills(userText);
   const skillFiles = await loadFiles(selectedSkills.map((skill) => skill.file), env, true);
 
-  const loaded = [...boot, ...optional, registry, ...skillFiles].filter((item) => item?.ok);
-  const failed = [...boot, ...optional, registry, ...skillFiles].filter((item) => item && !item.ok);
+  const all = [...boot, ...optional, registry, ...skillFiles].filter(Boolean);
+  const loaded = all.filter((item) => item.ok);
+  const failed = all.filter((item) => !item.ok);
 
   return [
     "# JIGANYUSI / OPENCLAW RUNTIME CONTEXT",
     "",
-    "OpenClaw adalah sistem operasi berpikir. Jalankan sebagai workflow: boot → route skill → refleksi → eksekusi.",
-    "Identitas operasional sekarang adalah Jiganyusi. Pengguna dipanggil Mentor.",
+    "OpenClaw adalah sumber kemampuan/skill. Runtime Cloudflare hanya jembatan Telegram, Room, file, dan provider.",
+    "Jalankan urutan berpikir: boot → route skill → baca konteks → refleksi singkat → eksekusi.",
+    "Identitas operasional sekarang adalah Jiganyusi. Panggil pengguna sebagai Mentor.",
     "",
     "## BOOT ORDER WAJIB",
     "1. AGENTS.md",
@@ -71,11 +68,11 @@ export async function buildOpenClawContext({ room, userText, env }) {
     "3. HEARTBEAT.md + TOOLS.md + MEMORY.md",
     "4. USER.md",
     "5. skills/m0.md sebagai registry + reflection loop",
-    "6. skills/m*.md atau x*.md sesuai routing, maksimal 3 skill kecuali benar-benar perlu",
+    "6. skills/m*.md atau x*.md sesuai routing",
     "",
-    "## FILE YANG TERBACA",
+    "## FILE OPENCLAW YANG TERBACA",
     loaded.map((item) => `- ${item.path}`).join("\n") || "- Tidak ada file OpenClaw yang berhasil dimuat.",
-    failed.length ? `\n## FILE GAGAL DIMUAT\n${failed.map((item) => `- ${item.path}: ${item.error}`).join("\n")}` : "",
+    failed.length ? `\n## FILE OPENCLAW GAGAL DIMUAT\n${failed.map((item) => `- ${item.path}: ${item.error}`).join("\n")}` : "",
     "",
     "## SKILL TERPILIH",
     selectedSkills.length
@@ -96,26 +93,19 @@ export async function buildOpenClawContext({ room, userText, env }) {
     `Pengetahuan: ${room?.ingatan?.pengetahuan || "Belum ada."}`,
     `Status: ${room?.ingatan?.status || room?.status || "-"}`,
     `Tanggal: ${room?.ingatan?.tanggal || room?.tanggal || "-"}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function selectSkills(userText) {
   const routed = routeSkills(userText);
   if (!routed.length) return [];
-
   const primary = routed[0];
-  const supporting = routed.filter((skill) => skill.id !== primary.id && skill.score >= primary.score * 0.5);
+  const supporting = routed.filter((skill) => skill.id !== primary.id && skill.score >= Math.max(1, primary.score * 0.5));
   return [primary, ...supporting].slice(0, 3);
 }
 
 function score(skill, q) {
-  return (
-    countHits(q, skill.high, 3) +
-    countHits(q, skill.med, 2) +
-    countHits(q, skill.low, 1)
-  );
+  return countHits(q, skill.high, 3) + countHits(q, skill.med, 2) + countHits(q, skill.low, 1);
 }
 
 function countHits(text, keywords, weight) {
@@ -141,19 +131,15 @@ async function loadFile(path, env, optional = false) {
 }
 
 function getBaseCandidates(env) {
-  if (env.OPENCLAW_BASE_URL) {
-    return [String(env.OPENCLAW_BASE_URL).replace(/\/$/, "")];
-  }
-
+  if (env?.OPENCLAW_BASE_URL) return [String(env.OPENCLAW_BASE_URL).replace(/\/$/, "")];
   return DEFAULT_BASE_CANDIDATES;
 }
 
-async function fetchText(path, env) {
-  const cacheKey = `${env.OPENCLAW_BASE_URL || "default"}:${path}`;
+async function fetchText(path, env = {}) {
+  const cacheKey = `${env?.OPENCLAW_BASE_URL || "default"}:${path}`;
   if (CACHE.has(cacheKey)) return CACHE.get(cacheKey);
 
   const bases = WORKING_BASE ? [WORKING_BASE, ...getBaseCandidates(env)] : getBaseCandidates(env);
-
   for (const base of unique(bases)) {
     const res = await fetch(`${base}/${path}`);
     if (!res.ok) continue;
@@ -162,7 +148,6 @@ async function fetchText(path, env) {
     CACHE.set(cacheKey, text);
     return text;
   }
-
   throw new Error(`OpenClaw load failed: ${path}`);
 }
 

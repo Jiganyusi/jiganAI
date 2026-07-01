@@ -1,7 +1,7 @@
 import { buildOpenClawContext, routeSkills } from "./openclaw.js";
 
 export async function buildBrainPrompt(room, userText, env) {
-  const conversation = (room.percakapan || [])
+  const conversation = (room?.percakapan || [])
     .map((item) => `${item.role}: ${item.text}`)
     .join("\n");
 
@@ -15,13 +15,13 @@ export async function buildBrainPrompt(room, userText, env) {
     openclawContext,
     "",
     "# JIGANYUSI EXECUTION RULES",
-    "- Baca konteks yang tersedia sebelum menjawab.",
-    "- Jangan mengaku membaca file/repo jika file itu tidak ada pada konteks FILE YANG TERBACA.",
-    "- Jika Mentor memberi API/URL/provider baru, jangan bertanya detail yang bisa dicari. Gunakan search provider jika tersedia, lalu simpulkan langkah koneksi.",
-    "- Jika Mentor meminta perubahan kode, jawab dengan file yang perlu diubah dan alasan singkat. Jangan menambah file/folder jika fungsi sudah ada.",
-    "- Jika perlu tindakan sensitif seperti menyimpan secret, commit, deploy, atau ubah repo, minta persetujuan singkat dari Mentor sebelum eksekusi.",
+    "- OpenClaw adalah sumber kemampuan. Jangan membuat kemampuan baru jika skill OpenClaw sudah mengatur cara berpikirnya.",
+    "- Baca konteks Room dan file yang tersedia sebelum menjawab.",
+    "- Jangan mengaku membaca file/repo jika file itu tidak ada di konteks.",
+    "- Jika Mentor memberi API/URL/provider baru, gunakan search/provider jika tersedia; jangan bertanya detail yang bisa dicari sendiri.",
+    "- Jika Mentor meminta perubahan kode, jawab berdasarkan file yang tersedia dan hindari tambah file/folder tanpa alasan nyata.",
+    "- Jika perlu tindakan sensitif seperti menyimpan secret, commit, deploy, atau ubah repo, minta persetujuan singkat.",
     "- Jika pertanyaan pendek seperti 'lanjut', 'gimana', 'kenapa', hubungkan dengan percakapan di Room aktif.",
-    "- Eksekusi dulu jika konteks cukup; jelaskan setelahnya seperlunya.",
     "- Jawab singkat, jelas, dan tidak muter-muter.",
     "",
     "# ROUTING SKILL TERDETEKSI",
@@ -38,6 +38,6 @@ export async function buildBrainPrompt(room, userText, env) {
 }
 
 export function buildBrainResponse(providerResult) {
-  if (!providerResult.ok) return providerResult.text;
+  if (!providerResult?.ok) return providerResult?.text || "AI Provider gagal tanpa pesan error.";
   return providerResult.text;
 }
